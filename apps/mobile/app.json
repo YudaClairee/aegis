@@ -32,7 +32,8 @@
           "color": "#E91E63"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-asset"
     ],
     "android": {
       "package": "com.aegis.app",
