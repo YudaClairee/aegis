@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { HTTPException } from 'hono/http-exception';
 
+import { env } from './lib/env';
 import { authRouter } from './routes/auth';
 import { contactsRouter } from './routes/contacts';
 import { contactLinksRouter } from './routes/contact-links';
@@ -15,15 +16,22 @@ import { trackingRouter } from './routes/tracking';
 // Create a new Hono instance with base path /api
 const app = new Hono().basePath('/api');
 
+// Allowed origins for browser-based clients (e.g. a future web admin panel).
+// The React Native app isn't affected by CORS at all, since it doesn't run in a browser.
+// Auth uses a Bearer token (Authorization header), not cookies, so credentials aren't required.
+const allowedOrigins = env.ALLOWED_ORIGINS
+  ? env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
+  : [];
+
 // Global middleware
 app.use('*', logger());
 app.use('*', cors({
-  origin: '*', // Allow all origins for API development.
+  origin: allowedOrigins.length > 0 ? allowedOrigins : '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
   exposeHeaders: ['Content-Length'],
   maxAge: 600,
-  credentials: true,
+  credentials: false,
 }));
 
 // Health check endpoint

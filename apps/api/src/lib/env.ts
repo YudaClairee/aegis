@@ -54,6 +54,10 @@ const envSchema = z.object({
     const cleaned = stripQuotes(val);
     return cleaned !== undefined && cleaned !== null && cleaned !== '' ? Number(cleaned) : 10485760;
   }, z.number()).default(10485760),
+  // Comma-separated list of allowed origins for browser-based clients (e.g. web admin panel).
+  // Not needed for the React Native app, since native fetch requests aren't subject to CORS.
+  // Leave unset to allow all origins (credentials will be disabled in that case).
+  ALLOWED_ORIGINS: z.preprocess(stripQuotes, z.string()).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

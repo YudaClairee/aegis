@@ -1,0 +1,11 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: safeher-api
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - apps/api/.env

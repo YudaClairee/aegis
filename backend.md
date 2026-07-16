@@ -8,7 +8,7 @@ Dokumen ini berdasarkan:
 - [`flowchart.md`](./flowchart.md)
 - Keputusan teknis tambahan:
   - AI backend memakai **OpenRouter** sebagai provider utama.
-  - Model default: `google/gemini-2.5-flash` melalui OpenRouter.
+  - Model default: `google/gemini-3-flash-preview` melalui OpenRouter.
   - Keluarga/kontak darurat **wajib download app dan register/login** agar bisa menerima push notification dan membuka live tracking.
 
 > Catatan: `implementation.md` awal menyebut Gemini direct via `@google/genai`. Untuk backend guide ini, baseline diganti menjadi **OpenRouter** agar model AI bisa diganti tanpa mengubah banyak kode backend.
@@ -165,7 +165,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # OpenRouter AI
 OPENROUTER_API_KEY=your-openrouter-api-key
-OPENROUTER_MODEL=google/gemini-2.5-flash
+OPENROUTER_MODEL=google/gemini-3-flash-preview
 OPENROUTER_SITE_URL=https://safeher.biz.id
 OPENROUTER_APP_NAME=SafeHer
 

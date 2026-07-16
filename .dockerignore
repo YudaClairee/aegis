@@ -1,0 +1,20 @@
+# Version control
+.git
+.gitignore
+
+# Package manager files
+node_modules
+
+# Build output
+dist
+.moon
+.proto
+
+# Sub-projects not needed for API
+apps/mobile
+
+# Environment secrets
+.env
+apps/api/.env
+apps/mobile/.env
+**/.*.local
