@@ -1,11 +1,22 @@
-import { Text, View } from 'react-native';
-import { VERSION } from '@aegis/shared';
+import { useEffect } from 'react';
+import { useRouter } from 'expo-router';
+import { View, ActivityIndicator, Text } from 'react-native';
+import { useAuth } from '../src/hooks/useAuth';
 
-export default function Page() {
+export default function RootPage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading) {
+      router.replace(user ? '/(tabs)' : '/(auth)/login');
+    }
+  }, [loading, user, router]);
+
   return (
-    <View className="flex-1 justify-center items-center bg-slate-900">
-      <Text className="text-2xl font-bold text-pink-500">🛡️ Aegis Monorepo</Text>
-      <Text className="text-slate-400 mt-2">Shared Lib Version: {VERSION}</Text>
+    <View className="flex-1 justify-center items-center bg-slate-950">
+      <ActivityIndicator size="large" color="#f472b6" />
+      <Text className="mt-4 text-slate-300">Memuat aplikasi...</Text>
     </View>
   );
 }
