@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { API_URL } from '../lib/env';
 
 interface AuthResult {
   user: User | null;
@@ -12,7 +13,7 @@ interface AuthContextValue {
   loading: boolean;
   error: string | null;
   signIn: (email: string, password: string) => Promise<AuthResult>;
-  signUp: (email: string, password: string) => Promise<AuthResult>;
+  signUp: (email: string, password: string, fullName?: string, phone?: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
 }
 
@@ -48,31 +49,97 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     setLoading(true);
     setError(null);
-    const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (authError) {
-      setError(authError.message);
+    try {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const msg = errorData.message || 'Login failed';
+        setError(msg);
+        setLoading(false);
+        return { user: null, error: msg };
+      }
+
+      const data = await response.json();
+      const { accessToken, refreshToken } = data.session;
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+
+      if (sessionError) {
+        setError(sessionError.message);
+        setLoading(false);
+        return { user: null, error: sessionError.message };
+      }
+
+      setUser(sessionData.user ?? null);
+      setLoading(false);
+      return { user: sessionData.user ?? null, error: null };
+    } catch (err: any) {
+      const msg = err.message || 'Login failed';
+      setError(msg);
+      setLoading(false);
+      return { user: null, error: msg };
     }
-    setUser(data.user ?? null);
-    setLoading(false);
-    return { user: data.user ?? null, error: authError?.message ?? null };
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, fullName?: string, phone?: string) => {
     setLoading(true);
     setError(null);
-    const { data, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-    if (authError) {
-      setError(authError.message);
+    try {
+      const response = await fetch(`${API_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          fullName: fullName || 'User',
+          phone: phone || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const msg = errorData.message || 'Registration failed';
+        setError(msg);
+        setLoading(false);
+        return { user: null, error: msg };
+      }
+
+      const data = await response.json();
+      const { accessToken, refreshToken } = data.session;
+
+      if (accessToken && refreshToken) {
+        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+
+        if (sessionError) {
+          setError(sessionError.message);
+          setLoading(false);
+          return { user: null, error: sessionError.message };
+        }
+
+        setUser(sessionData.user ?? null);
+        setLoading(false);
+        return { user: sessionData.user ?? null, error: null };
+      } else {
+        setLoading(false);
+        return { user: null, error: null };
+      }
+    } catch (err: any) {
+      const msg = err.message || 'Registration failed';
+      setError(msg);
+      setLoading(false);
+      return { user: null, error: msg };
     }
-    setUser(data.user ?? null);
-    setLoading(false);
-    return { user: data.user ?? null, error: authError?.message ?? null };
   };
 
   const signOut = async () => {

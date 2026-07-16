@@ -61,30 +61,61 @@ export function stopLiveBroadcast() {
   currentIncidentId = null;
 }
 
-export async function persistLocationHistory(incidentId: string, location: Omit<LocationUpdate, 'userId' | 'incidentId'>) {
+import { queueRequest } from './offline-queue';
+
+export async function persistLocationHistory(
+  incidentId: string | undefined,
+  location: Omit<LocationUpdate, 'userId' | 'incidentId'>
+) {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
 
-  const response = await fetch(`${API_URL}/api/tracking/location`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
-      incidentId,
-      latitude: location.latitude,
-      longitude: location.longitude,
-      speed: location.speed,
-      heading: location.heading,
-      accuracy: location.accuracy,
-      timestamp: new Date().toISOString(),
-    }),
-  });
+  try {
+    if (!incidentId) {
+      throw new Error('No active incident ID for direct location persistence');
+    }
 
-  if (!response.ok) {
-    throw new Error(`Failed to persist tracking location: ${response.status}`);
+    const response = await fetch(`${API_URL}/api/tracking/location`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        incidentId,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        speed: location.speed,
+        heading: location.heading,
+        accuracy: location.accuracy,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to persist tracking location: ${response.status}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    console.warn('Failed to persist location history, queueing offline:', error);
+    // Queue tracking location. If incidentId is undefined, it will fallback to activeServerIncidentId in the queue processor.
+    await queueRequest(
+      'tracking_location',
+      '/api/tracking/location',
+      'POST',
+      {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        speed: location.speed,
+        heading: location.heading,
+        accuracy: location.accuracy,
+        timestamp: new Date().toISOString(),
+      },
+      undefined,
+      incidentId
+    );
+    throw error;
   }
-
-  return response.json();
 }
+

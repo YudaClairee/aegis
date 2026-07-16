@@ -245,7 +245,9 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
     set({ lastLocation: location });
     
     const activeIncidentId = get().activeIncidentId;
-    if (activeIncidentId) {
+    const status = get().status;
+    
+    if (activeIncidentId || status === 'sos_triggered') {
       supabase.auth.getSession().then((sessionRes) => {
         const userId = sessionRes.data.session?.user?.id;
         if (userId) {
@@ -258,11 +260,13 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
             timestamp: new Date(location.timestamp).toISOString(),
           };
           
-          broadcastLocation(activeIncidentId, userId, coords).catch((err) => {
-            console.error('Failed to broadcast location:', err);
-          });
+          if (activeIncidentId) {
+            broadcastLocation(activeIncidentId, userId, coords).catch((err) => {
+              console.error('Failed to broadcast location:', err);
+            });
+          }
           
-          persistLocationHistory(activeIncidentId, coords).catch((err) => {
+          persistLocationHistory(activeIncidentId ?? undefined, coords).catch((err) => {
             console.error('Failed to persist location history:', err);
           });
         }
@@ -345,6 +349,8 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
       set({
         error: (error as Error)?.message ?? 'Gagal mengirim SOS. Coba lagi.',
       });
+      // Start recording even if request failed, using undefined/null as the incidentId
+      startRecordingSession().catch((err) => console.warn('Failed to start offline audio recording:', err));
     }
   },
 }));

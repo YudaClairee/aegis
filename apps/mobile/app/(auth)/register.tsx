@@ -10,6 +10,8 @@ export default function RegisterPage() {
   const { signUp, loading, error, user } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
 
   if (user) {
     router.replace('/(tabs)');
@@ -17,7 +19,11 @@ export default function RegisterPage() {
   }
 
   const handleSubmit = async () => {
-    const result = await signUp(email, password);
+    if (!fullName.trim()) {
+      Alert.alert('Error', 'Nama Lengkap wajib diisi.');
+      return;
+    }
+    const result = await signUp(email, password, fullName, phone);
     if (!result.error) {
       Alert.alert('Akun dibuat', 'Silakan cek email Anda untuk verifikasi jika diperlukan.');
       router.replace('/(auth)/login');
@@ -32,6 +38,19 @@ export default function RegisterPage() {
       <Text className="text-slate-300 mt-3">Daftar untuk mulai melindungi diri Anda dan keluarga.</Text>
 
       <View className="mt-8 space-y-4">
+        <TextField
+          label="Nama Lengkap"
+          value={fullName}
+          onChangeText={setFullName}
+          placeholder="Nama Lengkap Anda"
+        />
+        <TextField
+          label="Nomor Telepon"
+          value={phone}
+          onChangeText={phone => setPhone(phone.replace(/[^0-9+]/g, ''))}
+          keyboardType="phone-pad"
+          placeholder="+628123456789"
+        />
         <TextField
           label="Email"
           value={email}
@@ -54,7 +73,7 @@ export default function RegisterPage() {
       <Button
         title={loading ? 'Memproses...' : 'Daftar'}
         onPress={handleSubmit}
-        disabled={loading || !email || !password}
+        disabled={loading || !email || !password || !fullName}
         className="mt-8"
       />
 

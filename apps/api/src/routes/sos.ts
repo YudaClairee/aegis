@@ -199,12 +199,16 @@ sosRouter.post('/:id/audio', async (c) => {
     throw new HTTPException(500, { message: storageErr?.message || 'Failed to upload audio file to storage' });
   }
 
-  // Get the public URL
-  const { data: publicUrlData } = supabase.storage
+  // Get a signed URL (valid for 1 year = 31536000 seconds) for private storage access
+  const { data: signedUrlData, error: signedUrlErr } = await supabase.storage
     .from('incident-audio')
-    .getPublicUrl(filePath);
+    .createSignedUrl(filePath, 31536000);
 
-  const audioUrl = publicUrlData?.publicUrl || '';
+  if (signedUrlErr || !signedUrlData) {
+    console.error('⚠️ Failed to generate signed URL for uploaded audio:', signedUrlErr);
+  }
+
+  const audioUrl = signedUrlData?.signedUrl || '';
 
   // Run AI Analysis Pipeline
   let transcript: string | null = null;
