@@ -1,0 +1,49 @@
+$schema: '../../.moon/cache/schemas/project.json'
+
+type: 'application'
+language: 'typescript'
+
+toolchain:
+  default: 'node'
+
+fileGroups:
+  sources:
+    - 'app/**/*'
+    - 'src/**/*'
+  configs:
+    - 'app.json'
+    - 'tsconfig.json'
+    - 'tailwind.config.js'
+    - 'metro.config.js'
+
+tasks:
+  start:
+    command: 'npx expo start --clear'
+    local: true
+
+  start-dev:
+    command: 'npx expo start --dev-client --clear'
+    local: true
+
+  build-android:
+    command: 'eas build --platform android --profile preview'
+    local: true
+
+  build-android-apk:
+    command: 'eas build --platform android --profile production'
+    local: true
+
+  prebuild:
+    command: 'npx expo prebuild --clean'
+    local: true
+
+  lint:
+    command: 'npx expo lint'
+    inputs:
+      - '@self:sources'
+
+  typecheck:
+    command: 'npx tsc --noEmit'
+    inputs:
+      - '@self:sources'
+      - '@self:configs'

@@ -1,0 +1,54 @@
+$schema: '../../.moon/cache/schemas/project.json'
+
+type: 'application'
+language: 'typescript'
+
+toolchain:
+  default: 'node'
+
+fileGroups:
+  sources:
+    - 'src/**/*'
+  configs:
+    - 'tsconfig.json'
+    - 'package.json'
+
+tasks:
+  dev:
+    command: 'npx tsx watch src/index.ts'
+    local: true
+    inputs:
+      - '@self:sources'
+
+  build:
+    command: 'npx tsc -p tsconfig.json'
+    inputs:
+      - '@self:sources'
+      - '@self:configs'
+    outputs:
+      - 'dist'
+
+  start:
+    command: 'node dist/index.js'
+    deps:
+      - '~:build'
+
+  lint:
+    command: 'npx eslint src/'
+    inputs:
+      - '@self:sources'
+
+  typecheck:
+    command: 'npx tsc --noEmit'
+    inputs:
+      - '@self:sources'
+      - '@self:configs'
+
+  test:
+    command: 'npx vitest run'
+    inputs:
+      - '@self:sources'
+
+  docker:build:
+    command: 'docker build -t safeher-api .'
+    local: true

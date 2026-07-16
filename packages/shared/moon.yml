@@ -1,0 +1,29 @@
+$schema: '../../.moon/cache/schemas/project.json'
+
+type: 'library'
+language: 'typescript'
+
+toolchain:
+  default: 'node'
+
+fileGroups:
+  sources:
+    - 'src/**/*'
+
+tasks:
+  build:
+    command: 'npx tsc -p tsconfig.json'
+    inputs:
+      - '@self:sources'
+    outputs:
+      - 'dist'
+
+  typecheck:
+    command: 'npx tsc --noEmit'
+    inputs:
+      - '@self:sources'
+
+  test:
+    command: 'npx vitest run'
+    inputs:
+      - '@self:sources'

@@ -1,0 +1,12 @@
+$schema: './cache/schemas/workspace.json'
+
+projects:
+  - 'apps/*'
+  - 'packages/*'
+
+vcs:
+  manager: 'git'
+  defaultBranch: 'main'
+
+hasher:
+  walkStrategy: 'glob'

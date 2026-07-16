@@ -1,0 +1,16 @@
+{
+  "name": "safeher",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter @aegis/api dev",
+    "dev:mobile": "pnpm --filter @aegis/mobile start",
+    "build:api": "pnpm --filter @aegis/api build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@moonrepo/cli": "^1.31.0",
+    "typescript": "^5.7.0",
+    "prettier": "^3.4.0"
+  }
+}
