@@ -1,10 +1,9 @@
 $schema: '../../.moon/cache/schemas/project.json'
 
-type: 'application'
+project:
+  type: 'application'
 language: 'typescript'
 
-toolchain:
-  default: 'node'
 
 fileGroups:
   sources:
@@ -16,7 +15,7 @@ fileGroups:
 tasks:
   dev:
     command: 'npx tsx watch src/index.ts'
-    local: true
+    preset: 'server'
     inputs:
       - '@self:sources'
 
@@ -49,6 +48,8 @@ tasks:
     inputs:
       - '@self:sources'
 
-  docker:build:
+  docker-build:
     command: 'docker build -t safeher-api .'
-    local: true
+    options:
+      cache: false
+      runInCI: false

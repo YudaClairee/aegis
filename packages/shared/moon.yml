@@ -1,10 +1,9 @@
 $schema: '../../.moon/cache/schemas/project.json'
 
-type: 'library'
+project:
+  type: 'library'
 language: 'typescript'
 
-toolchain:
-  default: 'node'
 
 fileGroups:
   sources:
