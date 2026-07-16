@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { router } from 'expo-router';
 import {
   startGuardianSession,
   stopGuardianSession,
@@ -8,6 +9,7 @@ import {
 } from '../services/guardian';
 import { triggerSOS as triggerSOSRequest } from '../services/sos';
 import { determineRiskLevel, calculateAccelerometerRisk } from '../services/risk-engine';
+import { startRecordingSession } from '../services/audio';
 import { SAFETY_CHECKIN } from '@aegis/shared';
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
@@ -276,7 +278,7 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
 
     set({ status: 'sos_triggered', countdownActive: false, countdownType: null, error: null });
     try {
-      await triggerSOSRequest({
+      const response = await triggerSOSRequest({
         triggerType,
         location: {
           latitude: state.lastLocation?.latitude ?? 0,
@@ -288,6 +290,12 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
         riskScore: state.riskScore,
         keywordsDetected: [],
       });
+
+      const incidentId = response.incident?.id;
+      if (incidentId) {
+        startRecordingSession(incidentId).catch((err) => console.warn('Failed to start audio recording:', err));
+        router.replace(`/incidents/${incidentId}`);
+      }
     } catch (error) {
       set({
         error: (error as Error)?.message ?? 'Gagal mengirim SOS. Coba lagi.',

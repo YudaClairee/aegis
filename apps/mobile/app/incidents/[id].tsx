@@ -146,6 +146,13 @@ export default function IncidentDetailPage() {
           {data.resolvedAt ? <Text className="text-slate-300">Resolved at: {new Date(data.resolvedAt).toLocaleString()}</Text> : null}
         </View>
 
+        {data.status === 'triggered' ? (
+          <View className="rounded-3xl bg-pink-950/80 p-5 border border-pink-700/50 mb-4 flex-row items-center space-x-3">
+            <ActivityIndicator color="#f472b6" />
+            <Text className="text-pink-300 font-medium text-sm flex-1">🎙️ Sedang merekam suara sekitar selama 15 detik...</Text>
+          </View>
+        ) : null}
+
         {data.aiSummary ? <AISummaryCard summary={data.aiSummary} /> : (
           <View className="rounded-3xl bg-slate-900 p-5 mb-4">
             <Text className="text-white text-lg font-semibold">AI analysis pending</Text>
