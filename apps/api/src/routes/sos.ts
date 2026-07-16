@@ -5,8 +5,16 @@ import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { sosRateLimitMiddleware } from '../middleware/rate-limit';
 import { checkIdempotency, saveIdempotency } from '../services/idempotency';
 import { assertIsIncidentOwner, assertCanAccessIncident } from '../services/contact-access';
-import { sendSOSNotification, sendNoResponseNotification, sendResolutionNotification, fetchFamilyTokens } from '../services/fcm';
+import { 
+  sendSOSNotification, 
+  sendNoResponseNotification, 
+  sendResolutionNotification, 
+  sendAISummaryNotification,
+  fetchFamilyTokens 
+} from '../services/fcm';
+import { analyzeIncidentAudio } from '../services/openrouter';
 import { SOSTriggerSchema, ResolveIncidentSchema } from '@aegis/shared';
+import { env } from '../lib/env';
 
 // Helper to map DB row to response incident structure
 function mapIncidentRow(row: any) {
@@ -133,7 +141,141 @@ sosRouter.post('/trigger', sosRateLimitMiddleware, async (c) => {
   return c.json(responseBody, 201);
 });
 
-// 2. PUT /:id/resolve - Resolve or mark an incident as false alarm
+// 2. POST /:id/audio - Upload audio recording and run AI analysis pipeline
+sosRouter.post('/:id/audio', async (c) => {
+  const userId = c.get('userId');
+  const incidentId = c.req.param('id');
+
+  // Verify incident belongs to the user
+  const incident = await assertIsIncidentOwner(userId, incidentId);
+
+  // Reject upload if incident is already resolved
+  if (incident.status === 'resolved' || incident.status === 'false_alarm') {
+    throw new HTTPException(400, { message: 'Cannot upload audio to a resolved or false alarm incident' });
+  }
+
+  const body = await c.req.parseBody();
+  const audioFile = body.audio;
+
+  if (!audioFile || !(audioFile instanceof File)) {
+    throw new HTTPException(400, { message: 'Audio file is required in "audio" multipart field' });
+  }
+
+  // Validate file size
+  if (audioFile.size > env.AUDIO_MAX_BYTES) {
+    throw new HTTPException(413, {
+      message: `Audio file too large (${(audioFile.size / (1024 * 1024)).toFixed(2)} MB). Max limit is ${(
+        env.AUDIO_MAX_BYTES / (1024 * 1024)
+      ).toFixed(0)} MB.`,
+    });
+  }
+
+  // Validate MIME type
+  const allowedMimeTypes = ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/webm', 'audio/m4a', 'audio/x-m4a'];
+  if (!allowedMimeTypes.includes(audioFile.type)) {
+    throw new HTTPException(415, {
+      message: `Unsupported audio type "${audioFile.type}". Allowed formats: mpeg, mp4, wav, webm, m4a`,
+    });
+  }
+
+  // Read arrayBuffer and convert to Buffer
+  const arrayBuffer = await audioFile.arrayBuffer();
+  const audioBuffer = Buffer.from(arrayBuffer);
+
+  // Determine file extension
+  const ext = audioFile.name ? audioFile.name.split('.').pop() : 'm4a';
+  const filePath = `${userId}/${incidentId}.${ext}`;
+
+  // Upload to Supabase Storage
+  const { data: storageData, error: storageErr } = await supabase.storage
+    .from('incident-audio')
+    .upload(filePath, audioBuffer, {
+      contentType: audioFile.type,
+      upsert: true,
+    });
+
+  if (storageErr || !storageData) {
+    throw new HTTPException(500, { message: storageErr?.message || 'Failed to upload audio file to storage' });
+  }
+
+  // Get the public URL
+  const { data: publicUrlData } = supabase.storage
+    .from('incident-audio')
+    .getPublicUrl(filePath);
+
+  const audioUrl = publicUrlData?.publicUrl || '';
+
+  // Run AI Analysis Pipeline
+  let transcript: string | null = null;
+  let aiSummary: any = null;
+  let riskScore: number | null = null;
+  let classification: any = null;
+  let aiErrorOccurred = false;
+
+  try {
+    const aiResult = await analyzeIncidentAudio({
+      audioBuffer,
+      mimeType: audioFile.type,
+      incidentId,
+      triggerType: incident.trigger_type,
+      location: {
+        latitude: incident.latitude,
+        longitude: incident.longitude,
+      },
+    });
+
+    transcript = aiResult.transcript;
+    aiSummary = aiResult.aiSummary;
+    riskScore = aiResult.aiSummary.risk;
+    classification = aiResult.aiSummary.classification;
+  } catch (aiErr) {
+    console.error('❌ AI Analysis pipeline failed (saving audio URL and continuing):', aiErr);
+    aiErrorOccurred = true;
+  }
+
+  // Update incident record in database.
+  // Transition incident status to 'active' once audio processing is kicked off/completed.
+  const updatePayload: any = {
+    audio_url: audioUrl,
+    status: 'active',
+  };
+
+  if (!aiErrorOccurred) {
+    updatePayload.transcript = transcript;
+    updatePayload.ai_summary = aiSummary;
+    updatePayload.risk_score = riskScore;
+    updatePayload.classification = classification;
+  }
+
+  const { data: updatedIncident, error: updateErr } = await supabase
+    .from('incidents')
+    .update(updatePayload)
+    .eq('id', incidentId)
+    .select()
+    .single();
+
+  if (updateErr || !updatedIncident) {
+    throw new HTTPException(500, { message: updateErr?.message || 'Failed to update incident record' });
+  }
+
+  // If AI pipeline succeeded, notify emergency contacts with the AI summary update
+  if (!aiErrorOccurred && transcript && aiSummary) {
+    sendAISummaryNotification({
+      incidentId,
+      victimUserId: userId,
+      classification: classification || 'unknown',
+      riskScore: riskScore || 0,
+      summary: aiSummary.summary || '',
+    }).catch((err) => console.error('FCM AI notification background failure:', err));
+  }
+
+  return c.json({
+    incident: mapIncidentRow(updatedIncident),
+    aiAnalysisStatus: aiErrorOccurred ? 'failed' : 'success',
+  });
+});
+
+// 3. PUT /:id/resolve - Resolve or mark an incident as false alarm
 sosRouter.put('/:id/resolve', async (c) => {
   const userId = c.get('userId');
   const incidentId = c.req.param('id');
@@ -180,7 +322,7 @@ sosRouter.put('/:id/resolve', async (c) => {
   return c.json({ incident: mapIncidentRow(updatedIncident) });
 });
 
-// 3. GET /:id/status - Get basic/limited incident status
+// 4. GET /:id/status - Get basic/limited incident status
 sosRouter.get('/:id/status', async (c) => {
   const userId = c.get('userId');
   const incidentId = c.req.param('id');
