@@ -204,7 +204,7 @@ export async function sendSOSNotification(params: {
       victimUserId: params.victimUserId,
       victimName: params.victimName,
       triggerType: params.triggerType,
-      deepLink: `safeher://tracking/${params.incidentId}`,
+      deepLink: `aegis://tracking/${params.incidentId}`,
     },
   });
 }
@@ -231,7 +231,7 @@ export async function sendNoResponseNotification(params: {
       victimUserId: params.victimUserId,
       victimName: params.victimName,
       triggerType: 'no_response',
-      deepLink: `safeher://tracking/${params.incidentId}`,
+      deepLink: `aegis://tracking/${params.incidentId}`,
     },
   });
 }
@@ -259,7 +259,7 @@ export async function sendAISummaryNotification(params: {
       incidentId: params.incidentId,
       classification: params.classification,
       risk: String(params.riskScore),
-      deepLink: `safeher://tracking/${params.incidentId}`,
+      deepLink: `aegis://tracking/${params.incidentId}`,
     },
   });
 }
@@ -286,7 +286,7 @@ export async function sendResolutionNotification(params: {
     data: {
       type: params.type,
       incidentId: params.incidentId,
-      deepLink: `safeher://incidents/${params.incidentId}`,
+      deepLink: `aegis://incidents/${params.incidentId}`,
     },
   });
 }

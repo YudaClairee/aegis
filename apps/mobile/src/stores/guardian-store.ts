@@ -11,6 +11,8 @@ import { triggerSOS as triggerSOSRequest } from '../services/sos';
 import { determineRiskLevel, calculateAccelerometerRisk } from '../services/risk-engine';
 import { startRecordingSession } from '../services/audio';
 import { SAFETY_CHECKIN } from '@aegis/shared';
+import { startLiveBroadcast, broadcastLocation, stopLiveBroadcast, persistLocationHistory } from '../services/live-tracking';
+import { supabase } from '../lib/supabase';
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
@@ -40,6 +42,7 @@ interface GuardianState {
   checkInCountdownActive: boolean;
   checkInCountdownSeconds: number;
   isAudioPermissionGranted: boolean;
+  activeIncidentId: string | null;
   startGuardian: () => Promise<void>;
   stopGuardian: () => Promise<void>;
   beginCountdown: (triggerType: 'manual' | 'risk_engine' | 'keyword' | 'notification_button' | 'no_response') => void;
@@ -69,6 +72,7 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
   checkInCountdownActive: false,
   checkInCountdownSeconds: 0,
   isAudioPermissionGranted: false,
+  activeIncidentId: null,
 
   startGuardian: async () => {
     set({ status: 'starting', error: null });
@@ -162,6 +166,7 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
     try {
       await stopGuardianSession();
       stopAccelerometerMonitoring();
+      stopLiveBroadcast();
       if (countdownTimer) {
         clearInterval(countdownTimer);
         countdownTimer = null;
@@ -187,6 +192,7 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
       nextCheckInAt: null,
       checkInCountdownActive: false,
       checkInCountdownSeconds: 0,
+      activeIncidentId: null,
     });
   },
 
@@ -237,6 +243,33 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
 
   setLocation: (location) => {
     set({ lastLocation: location });
+    
+    const activeIncidentId = get().activeIncidentId;
+    if (activeIncidentId) {
+      supabase.auth.getSession().then((sessionRes) => {
+        const userId = sessionRes.data.session?.user?.id;
+        if (userId) {
+          const coords = {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            speed: location.speed,
+            heading: null,
+            accuracy: location.accuracy ?? 0,
+            timestamp: new Date(location.timestamp).toISOString(),
+          };
+          
+          broadcastLocation(activeIncidentId, userId, coords).catch((err) => {
+            console.error('Failed to broadcast location:', err);
+          });
+          
+          persistLocationHistory(activeIncidentId, coords).catch((err) => {
+            console.error('Failed to persist location history:', err);
+          });
+        }
+      }).catch((err) => {
+        console.error('Failed to fetch session for location broadcast:', err);
+      });
+    }
   },
 
   setRiskScore: (score, signal) => {
@@ -293,6 +326,18 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
 
       const incidentId = response.incident?.id;
       if (incidentId) {
+        set({ activeIncidentId: incidentId });
+        
+        try {
+          const sessionRes = await supabase.auth.getSession();
+          const userId = sessionRes.data.session?.user?.id;
+          if (userId) {
+            startLiveBroadcast(incidentId, userId);
+          }
+        } catch (err) {
+          console.warn('Failed to start live broadcast:', err);
+        }
+
         startRecordingSession(incidentId).catch((err) => console.warn('Failed to start audio recording:', err));
         router.replace(`/incidents/${incidentId}`);
       }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, Alert, ActivityIndicator, FlatList, Pressable, Modal } from 'react-native';
 import { Stack } from 'expo-router';
 import { useContacts } from '../../src/hooks/useContacts';
+import { useContactLinks } from '../../src/hooks/useContactLinks';
 import { TextField } from '../../src/components/ui/TextField';
 import { Button } from '../../src/components/ui/Button';
 import type { EmergencyContact } from '@aegis/shared';
@@ -25,6 +26,8 @@ export default function ContactsPage() {
     deleteContact,
     setPrimaryContact,
   } = useContacts();
+
+  const { generateInviteCode, isGeneratingInvite } = useContactLinks();
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingContact, setEditingContact] = useState<EmergencyContact | null>(null);
@@ -177,6 +180,46 @@ export default function ContactsPage() {
                 <Text className="text-xs text-slate-400 font-semibold">Jadikan Kontak Utama</Text>
               </Pressable>
             ) : null}
+
+            {/* Invite Status Section */}
+            <View className="mt-4 border-t border-slate-850 pt-4 flex-row items-center justify-between">
+              <View>
+                <Text className="text-[10px] uppercase text-slate-500 font-semibold">Status Sambungan</Text>
+                {item.inviteStatus === 'accepted' ? (
+                  <Text className="text-xs text-emerald-400 font-semibold mt-1">✅ Terhubung</Text>
+                ) : item.inviteStatus === 'pending' && item.inviteCode ? (
+                  <View className="mt-1">
+                    <Text className="text-xs text-amber-400 font-semibold">⌛ Menunggu Konfirmasi</Text>
+                    <Text className="text-[11px] text-slate-400 mt-0.5 font-mono">Kode: {item.inviteCode}</Text>
+                  </View>
+                ) : (
+                  <Text className="text-xs text-slate-400 mt-1">❌ Belum Terhubung</Text>
+                )}
+              </View>
+
+              {item.inviteStatus !== 'accepted' && (
+                <Pressable
+                  onPress={async () => {
+                    try {
+                      const res = await generateInviteCode(item.id);
+                      Alert.alert(
+                        'Kode Undangan Dibuat',
+                        `Gunakan kode berikut untuk menghubungkan HP keluarga Anda:\n\n${res.inviteCode}\n\nMasukkan kode ini di menu Pendampingan Keluarga di HP pendamping.`,
+                        [{ text: 'OK' }]
+                      );
+                    } catch (err: any) {
+                      Alert.alert('Gagal', err.message || 'Gagal membuat kode undangan');
+                    }
+                  }}
+                  disabled={isGeneratingInvite}
+                  className="px-3.5 py-2 bg-pink-500/20 border border-pink-500/30 rounded-2xl active:bg-pink-500/30"
+                >
+                  <Text className="text-xs text-pink-400 font-semibold">
+                    {item.inviteCode ? 'Regenerasi Kode' : 'Hubungkan HP'}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         )}
         ListEmptyComponent={

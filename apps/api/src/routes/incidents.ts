@@ -23,6 +23,7 @@ function mapIncidentRow(row: any) {
     riskScore: row.risk_score,
     classification: row.classification || null,
     keywordsDetected: row.keywords_detected || [],
+    triggerContext: row.trigger_context || null,
     resolvedAt: row.resolved_at || null,
     resolutionNotes: row.resolution_notes || null,
     createdAt: row.created_at,

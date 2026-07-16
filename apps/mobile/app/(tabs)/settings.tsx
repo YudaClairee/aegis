@@ -39,6 +39,20 @@ export default function SettingsTab() {
           </View>
           <Text className="text-slate-400 text-lg font-bold">➡️</Text>
         </Pressable>
+
+        <Pressable
+          onPress={() => router.push('/settings/family')}
+          className="flex-row items-center justify-between rounded-3xl border border-slate-800 bg-slate-900 p-5 active:bg-slate-800"
+        >
+          <View className="flex-row items-center space-x-3">
+            <Text className="text-2xl">🛡️</Text>
+            <View>
+              <Text className="text-lg font-semibold text-white">Pendampingan Keluarga</Text>
+              <Text className="text-xs text-slate-400">Jaga keluarga Anda / terima kode undangan</Text>
+            </View>
+          </View>
+          <Text className="text-slate-400 text-lg font-bold">➡️</Text>
+        </Pressable>
       </View>
 
       <View className="mt-auto">

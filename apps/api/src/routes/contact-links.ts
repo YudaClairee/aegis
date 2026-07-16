@@ -16,6 +16,9 @@ function mapContactRow(row: any): EmergencyContact {
     isPrimary: row.is_primary || false,
     fcmToken: row.fcm_token || null,
     createdAt: row.created_at,
+    inviteCode: row.invite_code || null,
+    inviteStatus: row.invite_status || null,
+    linkedUserId: row.linked_user_id || null,
   };
 }
 

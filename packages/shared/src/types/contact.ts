@@ -7,5 +7,8 @@ export interface EmergencyContact {
   isPrimary: boolean
   fcmToken: string | null      // Jika keluarga install app
   createdAt: string
+  inviteCode?: string | null
+  inviteStatus?: 'pending' | 'accepted' | 'revoked' | null
+  linkedUserId?: string | null
 }
 
