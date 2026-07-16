@@ -4,6 +4,8 @@ import { logger } from 'hono/logger';
 import { HTTPException } from 'hono/http-exception';
 
 import { authRouter } from './routes/auth';
+import { contactsRouter } from './routes/contacts';
+import { contactLinksRouter } from './routes/contact-links';
 
 // Create a new Hono instance with base path /api
 const app = new Hono().basePath('/api');
@@ -29,6 +31,8 @@ app.get('/health', (c) => {
 
 // Route mounting
 app.route('/auth', authRouter);
+app.route('/contacts', contactsRouter);
+app.route('/contact-links', contactLinksRouter);
 
 // 404 Not Found Handler
 app.notFound((c) => {
