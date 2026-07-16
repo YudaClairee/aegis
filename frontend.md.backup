@@ -15,17 +15,18 @@ Frontend harus menyediakan aplikasi mobile yang memungkinkan user:
 
 1. Register, login, logout, dan mengelola profil.
 2. Menambahkan emergency contacts.
-3. Mengaktifkan **Guardian Mode**.
-4. Mendeteksi risiko dari GPS, accelerometer, dan distress keywords.
-5. Menampilkan countdown 5 detik sebelum auto-SOS.
-6. Memicu SOS secara manual atau otomatis.
-7. Mengirim lokasi terakhir ke backend.
-8. Merekam audio lingkungan selama 15 detik setelah SOS.
-9. Mengunggah audio untuk dianalisis AI.
-10. Mengirim live location via Supabase Realtime.
-11. Menampilkan live tracking untuk keluarga/kontak darurat.
-12. Menampilkan riwayat dan detail insiden.
-13. Menangani offline mode secara aman.
+3. Mengaktifkan **Guardian Mode** sebagai safety session.
+4. Mendeteksi risiko dari accelerometer, phone drop, dan distress keywords; GPS dipakai untuk tracking/lokasi incident.
+5. Menjalankan safety check-in/no-response escalation untuk kondisi freeze/tonic immobility.
+6. Menampilkan countdown 5 detik sebelum auto-SOS.
+7. Memicu SOS secara manual atau otomatis.
+8. Mengirim lokasi terakhir ke backend.
+9. Merekam audio lingkungan selama 15 detik setelah SOS.
+10. Mengunggah audio untuk dianalisis AI.
+11. Mengirim live location via Supabase Realtime.
+12. Menampilkan live tracking untuk keluarga/kontak darurat.
+13. Menampilkan riwayat dan detail insiden.
+14. Menangani offline mode secara aman.
 
 ---
 
@@ -43,7 +44,8 @@ Frontend harus menyediakan aplikasi mobile yang memungkinkan user:
   - persistent notification,
   - accelerometer monitoring,
   - keyword detection fallback atau Picovoice jika key tersedia,
-  - risk scoring,
+  - risk scoring berbasis keyword/accelerometer/phone drop,
+  - safety check-in/no-response escalation,
   - countdown modal.
 - SOS flow:
   - `POST /api/sos/trigger`,
@@ -143,7 +145,7 @@ Request `POST /api/sos/trigger`:
 
 ```ts
 {
-  triggerType: 'manual' | 'keyword' | 'risk_engine' | 'notification_button'
+  triggerType: 'manual' | 'keyword' | 'risk_engine' | 'notification_button' | 'no_response'
   location: {
     latitude: number
     longitude: number
@@ -153,6 +155,12 @@ Request `POST /api/sos/trigger`:
   }
   riskScore?: number
   keywordsDetected?: string[]
+  triggerContext?: {
+    guardianStartedAt?: string
+    lastCheckInAt?: string | null
+    missedCheckInAt?: string
+    escalationReason?: 'missed_checkin' | 'countdown_timeout'
+  }
 }
 ```
 
@@ -217,6 +225,7 @@ apps/mobile/
         GuardianStatusCard.tsx
         RiskLevelIndicator.tsx
         SensorStatusList.tsx
+        SafetyCheckInCard.tsx
         CountdownOverlay.tsx
       sos/
         SOSButton.tsx
@@ -256,6 +265,7 @@ apps/mobile/
       keyword.ts
       keyword-fallback.ts
       risk-engine.ts
+      safety-checkin.ts
       sos.ts
       audio.ts
       live-tracking.ts
@@ -286,15 +296,17 @@ apps/mobile/
 ## 7. Prinsip Implementasi
 
 1. **Safety first**: jika satu sensor gagal, Guardian Mode tetap berjalan dengan sensor yang tersedia.
-2. **Offline tolerant**: SOS, audio, dan lokasi harus bisa di-buffer saat offline.
-3. **No secret in mobile**: hanya pakai public anon key dan public API URL.
-4. **Minimal tap during emergency**: tombol SOS harus besar, jelas, dan cepat diakses.
-5. **Explicit permissions**: jelaskan alasan akses lokasi, mikrofon, dan notifikasi dengan copy yang user-friendly.
-6. **Non-blocking SOS**: setelah user trigger SOS, jangan tunggu audio/AI selesai untuk membuat incident. Incident harus dibuat dulu.
-7. **Realtime state ≠ server state**:
+2. **Assume freeze can happen**: jangan desain emergency flow yang mewajibkan user confirm saat bahaya; user hanya perlu cancel jika false alarm.
+3. **No-response escalation**: Guardian Mode wajib punya safety check-in/timer agar tetap berguna saat user tidak bisa bicara, bergerak, atau menekan tombol.
+4. **Offline tolerant**: SOS, audio, dan lokasi harus bisa di-buffer saat offline.
+5. **No secret in mobile**: hanya pakai public anon key dan public API URL.
+6. **Minimal tap during emergency**: tombol SOS harus besar, jelas, dan cepat diakses.
+7. **Explicit permissions**: jelaskan alasan akses lokasi, mikrofon, dan notifikasi dengan copy yang user-friendly.
+8. **Non-blocking SOS**: setelah user trigger SOS, jangan tunggu audio/AI selesai untuk membuat incident. Incident harus dibuat dulu.
+9. **Realtime state ≠ server state**:
    - TanStack Query untuk contacts, incidents, profile.
-   - Zustand untuk Guardian Mode, risk score, sensor status, active SOS.
-8. **Top-level background task**: semua `TaskManager.defineTask` wajib didefinisikan di top-level module, bukan di dalam component React.
+   - Zustand untuk Guardian Mode, risk score, sensor status, safety check-in, active SOS.
+10. **Top-level background task**: semua `TaskManager.defineTask` wajib didefinisikan di top-level module, bukan di dalam component React.
 
 ---
 
@@ -960,6 +972,15 @@ type GuardianState = {
     accelerometer: 'idle' | 'active' | 'error'
     notification: 'idle' | 'active' | 'error'
   }
+  checkIn: {
+    enabled: boolean
+    intervalSeconds: number
+    graceSeconds: number
+    nextCheckInAt: string | null
+    lastCheckInAt: string | null
+    missedCount: number
+    status: 'idle' | 'scheduled' | 'prompting' | 'countdown' | 'triggered'
+  }
   detectedKeywords: string[]
   lastSignal: string | null
 }
@@ -973,11 +994,16 @@ type GuardianState = {
 - `setRiskResult()`
 - `addKeyword()`
 - `setSensorStatus()`
+- `configureCheckIn()`
+- `markCheckInSafe()`
+- `markCheckInMissed()`
+- `setCheckInStatus()`
 - `resetGuardian()`
 
 **Acceptance criteria:**
 
 - Home dan Guardian screen membaca state yang sama.
+- Check-in schedule tampil di Guardian screen saat Guardian aktif.
 - State reset saat Guardian stop/logout.
 
 ---
@@ -995,21 +1021,31 @@ type GuardianState = {
 **Langkah:**
 
 1. Implement `calculateRisk(signals)` memakai constants dari `@safeher/shared`.
-2. Implement `detectAccelerometerAnomaly(x, y, z)`:
+2. Sinyal MVP yang dihitung:
+   - distress keyword score,
+   - accelerometer anomaly/shake,
+   - phone drop/free-fall.
+3. Jangan memakai perubahan speed atau perubahan lokasi sebagai risk signal MVP; lokasi dipakai untuk tracking/evidence.
+4. Implement `detectAccelerometerAnomaly(x, y, z)`:
    - shake jika magnitude `> SHAKE_THRESHOLD * 9.81`,
    - drop jika magnitude `< DROP_THRESHOLD * 9.81`.
-3. Cap total risk score di 100.
-4. Return:
+5. Cap total risk score di 100.
+6. Return:
    - `totalScore`,
    - `level`,
    - `shouldTriggerCountdown`,
+   - `triggerReason`,
    - `signals`.
-5. Trigger countdown jika `totalScore >= RISK_LEVELS.CRITICAL`.
+7. Trigger countdown jika salah satu terpenuhi:
+   - `totalScore >= RISK_LEVELS.CRITICAL`,
+   - `keywordScore >= RISK_THRESHOLD`,
+   - phone drop terdeteksi bersama accelerometer anomaly.
 
 **Acceptance criteria:**
 
 - Unit test manual atau dev screen bisa menunjukkan risk score naik.
-- Score critical membuka countdown sekali, tidak berulang-ulang selama modal aktif.
+- Keyword threshold, phone drop + anomaly, atau score critical membuka countdown sekali, tidak berulang-ulang selama modal aktif.
+- Perubahan speed/lokasi biasa tidak menaikkan risk score.
 
 ---
 
@@ -1079,7 +1115,7 @@ type GuardianState = {
    - deteksi drop/free-fall,
    - update risk signals.
 4. Tambahkan debouncing agar satu guncangan tidak dihitung berkali-kali.
-5. Jika critical, panggil flow countdown.
+5. Jika `shouldTriggerCountdown`, panggil flow countdown dengan `triggerReason` dari risk engine.
 
 **Acceptance criteria:**
 
@@ -1121,7 +1157,7 @@ type GuardianState = {
    - update `detectedKeywords`,
    - update risk signal,
    - hitung total risk,
-   - trigger countdown jika critical.
+   - trigger countdown jika `keywordScore >= RISK_THRESHOLD` atau risk engine mengembalikan `shouldTriggerCountdown`.
 4. Jika init gagal, set microphone status `error` dan lanjutkan Guardian tanpa keyword detection.
 
 **Acceptance criteria:**
@@ -1145,22 +1181,95 @@ type GuardianState = {
 **Langkah:**
 
 1. Daftarkan notification category `guardian` dengan actions:
+   - `SAFE_ACTION` → `✅ Saya aman`,
    - `SOS_ACTION` → `🚨 SOS`,
    - `STOP_ACTION` → `⬛ Stop`.
 2. Tambahkan listener `addNotificationResponseReceivedListener`.
-3. Jika `SOS_ACTION`:
+3. Jika `SAFE_ACTION`:
+   - tandai check-in aman,
+   - jadwalkan check-in berikutnya.
+4. Jika `SOS_ACTION`:
    - buka app ke foreground,
    - trigger SOS dengan `triggerType: 'notification_button'`,
    - skip countdown karena user eksplisit menekan SOS.
-4. Jika `STOP_ACTION`:
+5. Jika `STOP_ACTION`:
    - stop Guardian.
-5. Pastikan listener tidak didaftarkan berkali-kali.
+6. Pastikan listener tidak didaftarkan berkali-kali.
 
 **Acceptance criteria:**
 
+- Tombol `Saya aman` di notification memperpanjang check-in session.
 - Tombol SOS di notification memicu incident.
 - Tombol Stop menghentikan Guardian.
 - Tidak ada duplicate action listener setelah hot reload/app reload.
+
+---
+
+### Task FE-6.7 — Safety check-in dan no-response escalation
+
+**Tujuan:** Guardian Mode tetap berguna saat user freeze/tonic immobility dan tidak bisa menekan tombol, berbicara, atau menggerakkan HP.
+
+**File terkait:**
+
+- `apps/mobile/src/services/safety-checkin.ts`
+- `apps/mobile/src/services/guardian.ts`
+- `apps/mobile/src/services/sos.ts`
+- `apps/mobile/src/stores/guardian-store.ts`
+- `apps/mobile/src/components/guardian/SafetyCheckInCard.tsx`
+
+**Prinsip UX:**
+
+- User tidak diwajibkan confirm untuk mengirim SOS saat kondisi bahaya.
+- User hanya perlu cancel/menjawab `Saya aman` jika ini false alarm.
+- Jika user tidak merespons sampai timeout, app otomatis trigger SOS.
+
+**Langkah:**
+
+1. Saat `startGuardian()`, buat safety session lokal dengan config default:
+   - check-in interval 5 menit,
+   - grace period 60 detik,
+   - countdown SOS 5 detik setelah grace period habis.
+2. Tampilkan status check-in di Guardian screen:
+   - next check-in time,
+   - tombol `Saya aman`,
+   - status missed/prompting jika user belum merespons.
+3. Schedule local notification/check-in prompt dengan action:
+   - `SAFE_ACTION` → tandai user aman dan jadwalkan check-in berikutnya,
+   - `SOS_ACTION` → trigger SOS segera,
+   - `STOP_ACTION` → stop Guardian jika user sengaja mengakhiri session.
+4. Jika waktu check-in tiba:
+   - tampilkan prompt/check-in card,
+   - kirim haptic/notification,
+   - mulai grace timer.
+5. Jika user menekan `Saya aman` sebelum grace habis:
+   - update `lastCheckInAt`,
+   - reset `missedCount`,
+   - jadwalkan check-in berikutnya.
+6. Jika grace timer habis tanpa respons:
+   - buka countdown modal dengan reason `no_response`,
+   - jika countdown tidak dicancel, panggil `triggerSOS({ triggerType: 'no_response' })`.
+7. Payload `triggerContext` untuk no-response:
+
+   ```ts
+   {
+     guardianStartedAt: string
+     lastCheckInAt: string | null
+     missedCheckInAt: string
+     escalationReason: 'missed_checkin' | 'countdown_timeout'
+   }
+   ```
+
+8. Saat Guardian stop/logout/incident resolved:
+   - cancel semua timer/check-in notification,
+   - reset check-in state.
+
+**Acceptance criteria:**
+
+- Guardian menampilkan jadwal check-in berikutnya.
+- User bisa menekan `Saya aman` untuk memperpanjang session.
+- Missed check-in membuka countdown no-response.
+- Jika countdown tidak dicancel, SOS terkirim dengan `triggerType: 'no_response'`.
+- Stop Guardian membersihkan semua timer agar tidak ada false SOS setelah mode dimatikan.
 
 ---
 
@@ -1188,21 +1297,21 @@ type GuardianState = {
 
 **Flow:**
 
-1. Risk critical atau manual SOS membuka modal.
-2. Timer berjalan 5 detik.
+1. Risk trigger, manual SOS, atau no-response check-in membuka modal.
+2. Timer berjalan 5 detik dengan prinsip auto-send unless canceled.
 3. Jika user cancel:
    - tutup modal,
-   - reset temporary risk trigger,
+   - reset temporary risk/no-response trigger,
    - Guardian tetap aktif.
 4. Jika timeout:
-   - panggil `triggerSOS('risk_engine' | 'keyword' | 'manual')`.
+   - panggil `triggerSOS('risk_engine' | 'keyword' | 'manual' | 'no_response')` sesuai reason.
 5. Jika user tap trigger now:
    - panggil `triggerSOS()` segera.
 
 **Acceptance criteria:**
 
 - Countdown bisa dicancel.
-- Timeout otomatis trigger SOS.
+- Timeout otomatis trigger SOS, termasuk no-response saat user tidak merespons.
 - Tidak ada multiple SOS jika user tap berkali-kali.
 
 ---
@@ -1253,9 +1362,15 @@ type SOSState = {
 
 ```ts
 type TriggerSOSOptions = {
-  triggerType: 'manual' | 'keyword' | 'risk_engine' | 'notification_button'
+  triggerType: 'manual' | 'keyword' | 'risk_engine' | 'notification_button' | 'no_response'
   riskScore?: number
   keywordsDetected?: string[]
+  triggerContext?: {
+    guardianStartedAt?: string
+    lastCheckInAt?: string | null
+    missedCheckInAt?: string
+    escalationReason?: 'missed_checkin' | 'countdown_timeout'
+  }
   skipCountdown?: boolean
 }
 ```
@@ -1286,7 +1401,7 @@ type TriggerSOSOptions = {
 **Acceptance criteria:**
 
 - Manual SOS membuat incident di backend.
-- Auto SOS dari countdown memakai payload risk/keywords.
+- Auto SOS dari countdown memakai payload risk/keywords atau `triggerType: 'no_response'`.
 - SOS tidak bisa double-created karena double tap.
 - Offline request masuk queue.
 
@@ -1690,6 +1805,7 @@ type QueuedRequest = {
 | --- | --- |
 | GPS unavailable | Tampilkan warning low accuracy, SOS tetap bisa dikirim jika ada last known location. |
 | No internet | Queue SOS/audio/location, retry saat online. |
+| Missed safety check-in | Buka no-response countdown; jika timeout, trigger SOS dengan `triggerType: 'no_response'`. |
 | Microphone denied | Guardian tetap aktif tanpa keyword detection. |
 | Background task error | Log error, update sensor status, minta user restart Guardian jika perlu. |
 | Picovoice init failed | Fallback service atau disable keyword detection. |
@@ -1724,6 +1840,7 @@ type QueuedRequest = {
 4. Set notification handler foreground.
 5. Handle notification tap:
    - emergency alert → `tracking/[incidentId]`,
+   - no-response alert → `tracking/[incidentId]`,
    - AI summary update → `incidents/[id]` atau `tracking/[incidentId]`,
    - resolved update → detail incident.
 
@@ -1806,6 +1923,10 @@ type QueuedRequest = {
 - [ ] Grant microphone permission.
 - [ ] Activate Guardian.
 - [ ] Persistent notification muncul.
+- [ ] Jadwal safety check-in tampil.
+- [ ] Tombol `Saya aman` memperpanjang check-in session.
+- [ ] Missed check-in membuka countdown no-response.
+- [ ] Cancel no-response countdown berhasil.
 - [ ] GPS status active.
 - [ ] Accelerometer status active.
 - [ ] Keyword/mic status active atau disabled dengan alasan jelas.
@@ -1815,6 +1936,7 @@ type QueuedRequest = {
 - [ ] Cancel countdown berhasil.
 - [ ] Trigger manual SOS ulang sampai timeout.
 - [ ] Incident dibuat di backend.
+- [ ] Ulangi missed check-in sampai timeout dan pastikan incident dibuat dengan `triggerType: 'no_response'`.
 - [ ] SOS active screen muncul.
 - [ ] Audio recording berjalan 15 detik.
 - [ ] Audio upload terkirim.
@@ -1838,6 +1960,7 @@ type QueuedRequest = {
 - [ ] Activate Guardian.
 - [ ] Trigger SOS manual.
 - [ ] App menampilkan status pending/offline.
+- [ ] Simulasikan missed check-in dan pastikan `no_response` SOS masuk queue saat offline.
 - [ ] Audio tetap direkam lokal jika permission ada.
 - [ ] Location update masuk buffer.
 - [ ] Nyalakan internet.
@@ -1896,9 +2019,10 @@ Gunakan urutan ini agar frontend bisa progres walau backend belum 100% selesai.
 4. Persistent notification.
 5. Accelerometer monitoring.
 6. Risk engine.
-7. Guardian UI realtime.
+7. Safety check-in/no-response service.
+8. Guardian UI realtime.
 
-**Output:** Guardian bisa aktif, GPS/sensor berjalan, risk score berubah.
+**Output:** Guardian bisa aktif, GPS/sensor berjalan, risk score berubah, dan missed check-in bisa membuka countdown.
 
 ---
 
@@ -1908,7 +2032,7 @@ Gunakan urutan ini agar frontend bisa progres walau backend belum 100% selesai.
 2. SOS store.
 3. Trigger SOS service.
 4. Manual SOS button.
-5. Notification action SOS/Stop.
+5. Notification action Safe/SOS/Stop.
 6. SOS active screen.
 7. Resolve/false alarm.
 
@@ -2003,7 +2127,9 @@ Frontend dianggap selesai untuk MVP jika semua kondisi berikut terpenuhi:
 - [ ] Accelerometer monitoring berjalan.
 - [ ] Keyword detection berjalan atau gracefully disabled.
 - [ ] Risk score dihitung dan tampil di UI.
-- [ ] Risk critical membuka countdown.
+- [ ] Risk critical/keyword threshold/phone drop membuka countdown.
+- [ ] Safety check-in berjalan saat Guardian aktif.
+- [ ] Missed check-in membuka countdown no-response.
 
 ## SOS
 
@@ -2011,6 +2137,7 @@ Frontend dianggap selesai untuk MVP jika semua kondisi berikut terpenuhi:
 - [ ] SOS dari notification action bekerja.
 - [ ] Countdown 5 detik bisa cancel.
 - [ ] Timeout countdown membuat incident.
+- [ ] Timeout no-response countdown membuat incident dengan `triggerType: 'no_response'`.
 - [ ] Active SOS screen menampilkan progress.
 - [ ] Resolve dan false alarm bekerja.
 
@@ -2040,7 +2167,7 @@ Frontend dianggap selesai untuk MVP jika semua kondisi berikut terpenuhi:
 
 - [ ] `typecheck` mobile lulus.
 - [ ] Manual verification checklist utama lulus.
-- [ ] Offline verification lulus minimal untuk SOS trigger dan audio queue.
+- [ ] Offline verification lulus minimal untuk SOS trigger, no-response queue, dan audio queue.
 - [ ] APK/dev build bisa dipakai demo.
 
 ---
@@ -2061,7 +2188,8 @@ Frontend membutuhkan keputusan/konfirmasi berikut dari backend:
 5. Apakah family tracking screen butuh auth atau bisa memakai signed/public tracking token.
 6. Export type Hono app jika frontend memakai Hono RPC typed client.
 7. Batas rate limit SOS agar frontend bisa menampilkan pesan yang tepat.
-8. Format audio file yang paling aman untuk Gemini/backend:
+8. Konfirmasi backend menerima `triggerType: 'no_response'` dan optional `triggerContext` pada `POST /api/sos/trigger`.
+9. Format audio file yang paling aman untuk Gemini/backend:
    - `.m4a`,
    - `.wav`,
    - `.webm`.
@@ -2080,6 +2208,8 @@ Jika backend belum siap, frontend boleh memakai mock API layer sementara selama 
 | Audio file terlalu besar | Upload gagal | Rekam 15 detik, kompres/format `.m4a`, validasi max 10MB. |
 | Supabase Realtime disconnect | Family tidak melihat lokasi terbaru | Buffer location dan persist via REST batch. |
 | Double tap SOS | Incident dobel | Lock dengan `isTriggering` dan `activeIncidentId`. |
+| User freeze/tonic immobility | User tidak bisa tekan SOS/bicara | Safety check-in/no-response escalation dengan auto-send unless canceled. |
+| App dimatikan saat Guardian aktif | Check-in timer bisa gagal | Foreground service notification, edukasi battery optimization, dan post-MVP server-side watchdog. |
 | Backend belum siap | Frontend terblokir | Mock API client dengan contract sama. |
 
 ---
@@ -2091,10 +2221,11 @@ Kerjakan setelah MVP stabil:
 1. Android Quick Settings Tile untuk one-tap SOS.
 2. PIN keamanan untuk cancel/resolve false alarm.
 3. Battery optimization warning screen.
-4. Geofencing safe/unsafe zones.
-5. Route anomaly detection yang lebih akurat.
-6. Family app role khusus.
-7. Share live tracking link via WhatsApp/SMS.
-8. Local encrypted storage untuk offline audio.
-9. E2E test dengan Detox/Maestro.
-10. EAS build pipeline.
+4. Server-side Guardian watchdog/heartbeat jika app dibunuh OS saat safety session aktif.
+5. Geofencing safe/unsafe zones.
+6. Route anomaly detection yang lebih akurat.
+7. Family app role khusus.
+8. Share live tracking link via WhatsApp/SMS.
+9. Local encrypted storage untuk offline audio.
+10. E2E test dengan Detox/Maestro.
+11. EAS build pipeline.
