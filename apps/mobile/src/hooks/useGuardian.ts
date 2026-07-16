@@ -1,7 +1,8 @@
 import { useGuardianStore } from '../stores/guardian-store';
+import { useShallow } from 'zustand/react/shallow';
 
 export function useGuardian() {
-  return useGuardianStore((state) => ({
+  return useGuardianStore(useShallow((state) => ({
     active: state.active,
     status: state.status,
     riskScore: state.riskScore,
@@ -20,5 +21,5 @@ export function useGuardian() {
     beginCountdown: state.beginCountdown,
     cancelCountdown: state.cancelCountdown,
     confirmSafety: state.confirmSafety,
-  }));
+  })));
 }

@@ -32,6 +32,13 @@
           "color": "#E91E63"
         }
       ],
+      [
+        "@react-native-voice/voice",
+        {
+          "microphonePermission": "Aegis membutuhkan akses mikrofon untuk mendeteksi suara Anda dalam keadaan bahaya.",
+          "speechRecognitionPermission": "Aegis membutuhkan akses pengenalan suara untuk mendeteksi kata-kata kunci darurat (contoh: tolong) saat Guardian Mode aktif."
+        }
+      ],
       "expo-secure-store",
       "expo-asset"
     ],

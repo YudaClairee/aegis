@@ -32,32 +32,59 @@ export async function requestGuardianPermissions() {
   };
 }
 
+let locationWatcher: Location.LocationSubscription | null = null;
+
 export async function startGuardianSession() {
   const hasStarted = await Location.hasStartedLocationUpdatesAsync(GUARDIAN_TASK);
   if (hasStarted) {
     return;
   }
 
-  await Location.startLocationUpdatesAsync(GUARDIAN_TASK, {
-    accuracy: Location.Accuracy.Balanced,
-    timeInterval: 5000,
-    distanceInterval: 10,
-    foregroundService: {
-      notificationTitle: '🛡️ Guardian Active',
-      notificationBody: 'Aegis keeps your location active while Guardian mode is enabled.',
-      notificationColor: '#E91E63',
-    },
-    pausesUpdatesAutomatically: false,
-    showsBackgroundLocationIndicator: true,
-  });
+  try {
+    await Location.startLocationUpdatesAsync(GUARDIAN_TASK, {
+      accuracy: Location.Accuracy.Balanced,
+      timeInterval: 5000,
+      distanceInterval: 10,
+      foregroundService: {
+        notificationTitle: '🛡️ Guardian Active',
+        notificationBody: 'Aegis keeps your location active while Guardian mode is enabled.',
+        notificationColor: '#E91E63',
+      },
+      pausesUpdatesAutomatically: false,
+      showsBackgroundLocationIndicator: true,
+    });
+  } catch (err: any) {
+    console.warn('Background location failed, falling back to foreground watcher.', err.message);
+    if (!locationWatcher) {
+      locationWatcher = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000,
+          distanceInterval: 10,
+        },
+        (location) => {
+          useGuardianStore.getState().setLocation({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            accuracy: location.coords.accuracy ?? null,
+            speed: location.coords.speed ?? null,
+            timestamp: location.timestamp,
+          });
+        }
+      );
+    }
+  }
 }
 
 export async function stopGuardianSession() {
   const hasStarted = await Location.hasStartedLocationUpdatesAsync(GUARDIAN_TASK);
-  if (!hasStarted) {
-    return;
+  if (hasStarted) {
+    await Location.stopLocationUpdatesAsync(GUARDIAN_TASK);
   }
-  await Location.stopLocationUpdatesAsync(GUARDIAN_TASK);
+  if (locationWatcher) {
+    locationWatcher.remove();
+    locationWatcher = null;
+  }
 }
 
 if (!TaskManager.isTaskDefined || !TaskManager.isTaskDefined(GUARDIAN_TASK)) {

@@ -8,11 +8,12 @@ import {
   stopAccelerometerMonitoring,
 } from '../services/guardian';
 import { triggerSOS as triggerSOSRequest } from '../services/sos';
-import { determineRiskLevel, calculateAccelerometerRisk } from '../services/risk-engine';
+import { determineRiskLevel, calculateAccelerometerRisk, calculateKeywordRisk } from '../services/risk-engine';
 import { startRecordingSession } from '../services/audio';
 import { SAFETY_CHECKIN } from '@aegis/shared';
 import { startLiveBroadcast, broadcastLocation, stopLiveBroadcast, persistLocationHistory } from '../services/live-tracking';
 import { supabase } from '../lib/supabase';
+import { startVoiceMonitoring, stopVoiceMonitoring } from '../services/voice';
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
@@ -94,6 +95,16 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
         }
       });
 
+      // Start Voice Monitoring
+      if (permissions.audio) {
+        startVoiceMonitoring((text) => {
+          const signal = calculateKeywordRisk(text);
+          if (signal && signal.score > 0) {
+            get().setRiskScore(get().riskScore + signal.score, signal.label);
+          }
+        });
+      }
+
       const nextTime = new Date(Date.now() + SAFETY_CHECKIN.INTERVAL_MS).toISOString();
 
       if (schedulerInterval) {
@@ -166,6 +177,7 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
     try {
       await stopGuardianSession();
       stopAccelerometerMonitoring();
+      await stopVoiceMonitoring();
       stopLiveBroadcast();
       if (countdownTimer) {
         clearInterval(countdownTimer);

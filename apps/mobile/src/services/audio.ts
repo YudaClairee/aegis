@@ -26,7 +26,7 @@ export async function startRecordingSession(incidentId?: string) {
     }
 
     const { recording: newRecording } = await Audio.Recording.createAsync(
-      Audio.RecordingOptionsPresets.LOW_QUALITY
+      Audio.RecordingOptionsPresets.HIGH_QUALITY
     );
     recording = newRecording;
 

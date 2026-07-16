@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useRouter } from 'expo-router';
+import { Link, useRouter, Redirect } from 'expo-router';
 import { Alert, View, Text } from 'react-native';
 import { TextField } from '../../src/components/ui/TextField';
 import { Button } from '../../src/components/ui/Button';
@@ -14,8 +14,7 @@ export default function RegisterPage() {
   const [phone, setPhone] = useState('');
 
   if (user) {
-    router.replace('/(tabs)');
-    return null;
+    return <Redirect href="/(tabs)" />;
   }
 
   const handleSubmit = async () => {
