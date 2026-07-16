@@ -1,10 +1,9 @@
 $schema: '../../.moon/cache/schemas/project.json'
 
-type: 'application'
+project:
+  type: 'application'
 language: 'typescript'
 
-toolchain:
-  default: 'node'
 
 fileGroups:
   sources:
@@ -19,23 +18,29 @@ fileGroups:
 tasks:
   start:
     command: 'npx expo start --clear'
-    local: true
+    preset: 'server'
 
   start-dev:
     command: 'npx expo start --dev-client --clear'
-    local: true
+    preset: 'server'
 
   build-android:
     command: 'eas build --platform android --profile preview'
-    local: true
+    options:
+      cache: false
+      runInCI: false
 
   build-android-apk:
     command: 'eas build --platform android --profile production'
-    local: true
+    options:
+      cache: false
+      runInCI: false
 
   prebuild:
     command: 'npx expo prebuild --clean'
-    local: true
+    options:
+      cache: false
+      runInCI: false
 
   lint:
     command: 'npx expo lint'

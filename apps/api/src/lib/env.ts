@@ -34,11 +34,11 @@ const envSchema = z.object({
   SUPABASE_ANON_KEY: cleanString.pipe(z.string().min(1)),
   SUPABASE_SERVICE_ROLE_KEY: cleanString.pipe(z.string().min(1)),
   OPENROUTER_API_KEY: cleanString.pipe(z.string().min(1)),
-  OPENROUTER_MODEL: z.preprocess((val) => stripQuotes(val) ?? 'google/gemini-2.5-flash', z.string()).default('google/gemini-2.5-flash'),
+  OPENROUTER_MODEL: z.preprocess((val) => stripQuotes(val) ?? 'google/gemini-3-flash-preview', z.string()).default('google/gemini-3-flash-preview'),
   OPENROUTER_SITE_URL: z.preprocess((val) => stripQuotes(val) ?? 'https://safeher.biz.id', z.string().url()).default('https://safeher.biz.id'),
   OPENROUTER_APP_NAME: z.preprocess((val) => stripQuotes(val) ?? 'SafeHer', z.string()).default('SafeHer'),
   FIREBASE_PROJECT_ID: cleanString.pipe(z.string().min(1)),
-  FIREBASE_CLIENT_EMAIL: cleanString.pipe(z.string().email()),
+  FIREBASE_CLIENT_EMAIL: cleanString.pipe(z.string().min(1)),
   FIREBASE_PRIVATE_KEY: cleanString
     .transform((val) => val.replace(/\\n/g, '\n'))
     .pipe(z.string().min(1)),

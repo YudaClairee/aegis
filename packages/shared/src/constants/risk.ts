@@ -3,8 +3,6 @@ export const RISK_WEIGHTS = {
   KEYWORD_DETECTION: 1.0,      // Bobot dari keyword score
   ACCELEROMETER_ANOMALY: 15,   // Gerakan tiba-tiba / HP dijatuhkan
   PHONE_DROP: 25,              // HP jatuh terdeteksi (free-fall)
-  SPEED_ANOMALY: 10,           // Kecepatan berubah drastis
-  LOCATION_ANOMALY: 10,        // Lokasi berubah drastis (dipaksa pindah)
 } as const
 
 // Threshold levels
