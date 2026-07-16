@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { API_URL } from '../lib/env';
 import { LocationUpdate } from '@aegis/shared';
 
 export function useLiveTracking(incidentId: string) {
@@ -13,16 +14,62 @@ export function useLiveTracking(incidentId: string) {
       return;
     }
 
+    let isMounted = true;
     setStatus('connecting');
+
+    async function loadInitialHistory() {
+      try {
+        const session = await supabase.auth.getSession();
+        const token = session.data.session?.access_token;
+        const response = await fetch(`${API_URL}/api/incidents/${incidentId}/locations`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch history: ${response.status}`);
+        }
+
+        const json = await response.json();
+        const locations = Array.isArray(json.locations) ? json.locations : [];
+        const mapped = locations.map((loc: any): LocationUpdate => ({
+          userId: '',
+          incidentId: loc.incidentId,
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          speed: loc.speed ?? null,
+          heading: loc.heading ?? null,
+          accuracy: loc.accuracy ?? 0,
+          timestamp: loc.recordedAt || new Date().toISOString(),
+        }));
+
+        if (isMounted) {
+          setLocationHistory(mapped);
+          if (mapped.length > 0) {
+            setCurrentLocation(mapped[mapped.length - 1]);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load initial tracking locations', err);
+      }
+    }
+
+    loadInitialHistory();
+
     const channel = supabase.channel(`tracking:${incidentId}`);
 
     channel.on('broadcast', { event: 'location-update' }, (payload) => {
       const update = payload.payload as LocationUpdate;
-      setCurrentLocation(update);
-      setLocationHistory((previous) => [...previous, update]);
+      if (isMounted) {
+        setCurrentLocation(update);
+        setLocationHistory((previous) => [...previous, update]);
+      }
     });
 
     channel.subscribe((status) => {
+      if (!isMounted) return;
       if (status === 'SUBSCRIBED') {
         setStatus('connected');
       }
@@ -33,6 +80,7 @@ export function useLiveTracking(incidentId: string) {
     });
 
     return () => {
+      isMounted = false;
       channel.unsubscribe();
     };
   }, [incidentId]);

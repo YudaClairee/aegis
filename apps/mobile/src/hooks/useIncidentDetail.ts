@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { API_URL } from '../lib/env';
 import { supabase } from '../lib/supabase';
+import { normalizeIncident } from '../lib/normalize';
 import type { Incident } from '@aegis/shared';
 
 async function fetchIncident(id: string) {
@@ -18,7 +19,8 @@ async function fetchIncident(id: string) {
     throw new Error(`Failed to fetch incident: ${response.status}`);
   }
 
-  return response.json() as Promise<Incident>;
+  const json = await response.json();
+  return normalizeIncident(json.incident);
 }
 
 export function useIncidentDetail(id: string) {

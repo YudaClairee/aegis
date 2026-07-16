@@ -8,12 +8,12 @@ export type Comment = {
   createdAt: string;
 };
 
-export async function updateIncident(id: string, payload: Record<string, any>) {
+export async function resolveIncident(id: string, payload: { resolution: 'resolved' | 'false_alarm'; notes?: string }) {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
 
-  const response = await fetch(`${API_URL}/api/incidents/${id}`, {
-    method: 'PATCH',
+  const response = await fetch(`${API_URL}/api/sos/${id}/resolve`, {
+    method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -23,68 +23,23 @@ export async function updateIncident(id: string, payload: Record<string, any>) {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `Failed to update incident ${id}`);
+    throw new Error(text || `Failed to resolve incident ${id}`);
   }
 
   return response.json();
 }
 
 export async function rerunAiAnalysis(id: string) {
-  const session = await supabase.auth.getSession();
-  const token = session.data.session?.access_token;
-
-  const response = await fetch(`${API_URL}/api/incidents/${id}/reprocess`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Failed to re-run AI for ${id}`);
-  }
-
-  return response.json();
+  console.warn('Rerun AI analysis is not supported by the backend yet.');
+  return { success: false, message: 'Not supported' };
 }
 
 export async function fetchComments(id: string) {
-  const session = await supabase.auth.getSession();
-  const token = session.data.session?.access_token;
-
-  const response = await fetch(`${API_URL}/api/incidents/${id}/comments`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Failed to fetch comments for ${id}`);
-  }
-
-  return response.json() as Promise<{ comments: Comment[] }>;
+  // Gracefully return empty comments since backend doesn't support comments yet
+  return { comments: [] as Comment[] };
 }
 
 export async function postComment(id: string, text: string) {
-  const session = await supabase.auth.getSession();
-  const token = session.data.session?.access_token;
-
-  const response = await fetch(`${API_URL}/api/incidents/${id}/comments`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ text }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Failed to post comment for ${id}`);
-  }
-
-  return response.json() as Promise<{ comment: Comment }>;
+  throw new Error('Comments are not supported by the backend yet.');
 }
+

@@ -2,8 +2,8 @@ import { View, Text, ScrollView, Pressable, Linking, TextInput, ActivityIndicato
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { Audio } from 'expo-av';
 import { useIncidentDetail } from '../../src/hooks/useIncidentDetail';
-import { updateIncident, rerunAiAnalysis, fetchComments, postComment, Comment } from '../../src/services/incidents';
-import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query';
+import { resolveIncident } from '../../src/services/incidents';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { AISummaryCard } from '../../src/components/incidents/AISummaryCard';
 import { RouteMap } from '../../src/components/maps/RouteMap';
 import { LocationHistoryEntry } from '@aegis/shared';
@@ -40,36 +40,14 @@ export default function IncidentDetailPage() {
 
   const queryClient = useQueryClient();
 
-  const { data: commentsData, isLoading: isCommentsLoading } = useQuery<{ comments: Comment[] }, Error>({
-    queryKey: ['incident', id, 'comments'],
-    queryFn: () => fetchComments(id ?? ''),
-    enabled: Boolean(id),
-  });
-
-  const postCommentMutation = useMutation<{ comment: Comment }, Error, { text: string }>({
-    mutationFn: ({ text }) => postComment(id ?? '', text),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['incident', id, 'comments'] });
-      queryClient.invalidateQueries({ queryKey: ['incident', id] });
-    },
-  });
-
-  const updateIncidentMutation = useMutation<any, Error, Record<string, any>>({
-    mutationFn: (payload) => updateIncident(id ?? '', payload),
+  const resolveIncidentMutation = useMutation<any, Error, { resolution: 'resolved' | 'false_alarm'; notes?: string }>({
+    mutationFn: (payload) => resolveIncident(id ?? '', payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['incident', id] });
       queryClient.invalidateQueries({ queryKey: ['incidents'] });
     },
   });
 
-  const rerunAiMutation = useMutation<any, Error, void>({
-    mutationFn: () => rerunAiAnalysis(id ?? ''),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['incident', id] });
-    },
-  });
-
-  const [commentText, setCommentText] = useState('');
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [resolutionNoteInput, setResolutionNoteInput] = useState('');
 
@@ -92,35 +70,9 @@ export default function IncidentDetailPage() {
 
   async function handleResolve(note?: string) {
     try {
-      await updateIncidentMutation.mutateAsync({ status: 'resolved', resolvedAt: new Date().toISOString(), resolutionNote: note });
+      await resolveIncidentMutation.mutateAsync({ resolution: 'resolved', notes: note });
     } catch (err) {
       console.warn('Resolve failed', err);
-    }
-  }
-
-  async function handleReopen() {
-    try {
-      await updateIncidentMutation.mutateAsync({ status: 'active', resolvedAt: null });
-    } catch (err) {
-      console.warn('Reopen failed', err);
-    }
-  }
-
-  async function handleRerunAi() {
-    try {
-      await rerunAiMutation.mutateAsync();
-    } catch (err) {
-      console.warn('Re-run AI failed', err);
-    }
-  }
-
-  async function handlePostComment() {
-    if (!commentText.trim()) return;
-    try {
-      await postCommentMutation.mutateAsync({ text: commentText.trim() });
-      setCommentText('');
-    } catch (err) {
-      console.warn('Post comment failed', err);
     }
   }
 
@@ -226,53 +178,19 @@ export default function IncidentDetailPage() {
         <View className="rounded-3xl bg-slate-900 p-5 mb-4">
           <Text className="text-lg font-semibold text-white">Actions</Text>
           <View className="mt-3 space-y-3">
-            {data.status !== 'resolved' ? (
-              <Pressable onPress={() => setShowResolveModal(true)} disabled={updateIncidentMutation.status === 'pending'} className="rounded-3xl bg-emerald-600 p-3 items-center">
-                {updateIncidentMutation.status === 'pending' ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-semibold">Mark as Resolved</Text>}
+            {data.status !== 'resolved' && data.status !== 'false_alarm' ? (
+              <Pressable onPress={() => setShowResolveModal(true)} disabled={resolveIncidentMutation.status === 'pending'} className="rounded-3xl bg-emerald-600 p-3 items-center">
+                {resolveIncidentMutation.status === 'pending' ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-semibold">Mark as Resolved</Text>}
               </Pressable>
             ) : (
-              <Pressable onPress={handleReopen} disabled={updateIncidentMutation.status === 'pending'} className="rounded-3xl bg-amber-500 p-3 items-center">
-                {updateIncidentMutation.status === 'pending' ? <ActivityIndicator color="#122" /> : <Text className="text-slate-950 font-semibold">Reopen Incident</Text>}
-              </Pressable>
+              <Text className="text-slate-400 text-sm text-center">Incident has been resolved.</Text>
             )}
-
-            <Pressable onPress={handleRerunAi} disabled={rerunAiMutation.status === 'pending'} className="rounded-3xl bg-violet-600 p-3 items-center">
-              {rerunAiMutation.status === 'pending' ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-semibold">Re-run AI analysis</Text>}
-            </Pressable>
           </View>
         </View>
 
         <View className="rounded-3xl bg-slate-900 p-5 mb-4">
           <Text className="text-lg font-semibold text-white">Comments</Text>
-          <View className="mt-3">
-            {isCommentsLoading ? (
-              <ActivityIndicator color="#f472b6" />
-            ) : commentsData?.comments?.length ? (
-              commentsData.comments.map((c: Comment) => (
-                <View key={c.id} className="mb-3">
-                  <Text className="text-slate-300">{c.text}</Text>
-                  <Text className="text-slate-500 text-xs">{new Date(c.createdAt).toLocaleString()}</Text>
-                </View>
-              ))
-            ) : (
-              <Text className="text-slate-500">No comments</Text>
-            )}
-
-            <View className="mt-3">
-              <TextInput
-                value={commentText}
-                onChangeText={setCommentText}
-                placeholder="Add a note or comment"
-                placeholderTextColor="#94a3b8"
-                className="bg-slate-800 rounded-2xl p-3 text-white"
-              />
-              <View className="mt-3">
-                <Pressable onPress={handlePostComment} disabled={postCommentMutation.status === 'pending'} className="rounded-3xl bg-pink-500 p-3 items-center">
-                  {postCommentMutation.status === 'pending' ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-semibold">Post Comment</Text>}
-                </Pressable>
-              </View>
-            </View>
-          </View>
+          <Text className="mt-2 text-slate-400 text-sm">Comments are not supported by the backend yet.</Text>
         </View>
 
         <Modal visible={showResolveModal} transparent animationType="slide">
@@ -292,7 +210,7 @@ export default function IncidentDetailPage() {
                   <Text className="text-white">Cancel</Text>
                 </Pressable>
                 <Pressable onPress={async () => { await handleResolve(resolutionNoteInput); setShowResolveModal(false); setResolutionNoteInput(''); }} className="flex-1 rounded-2xl bg-emerald-600 p-3 items-center">
-                  {updateIncidentMutation.status === 'pending' ? <ActivityIndicator color="#fff" /> : <Text className="text-white">Confirm Resolve</Text>}
+                  {resolveIncidentMutation.status === 'pending' ? <ActivityIndicator color="#fff" /> : <Text className="text-white">Confirm Resolve</Text>}
                 </Pressable>
               </View>
             </View>

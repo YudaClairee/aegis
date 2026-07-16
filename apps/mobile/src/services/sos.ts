@@ -1,8 +1,9 @@
+import { TriggerType } from '@aegis/shared';
 import { API_URL } from '../lib/env';
 import { supabase } from '../lib/supabase';
 
 export type SOSTriggerData = {
-  triggerType: 'manual' | 'risk_engine' | 'keyword' | 'notification_button';
+  triggerType: TriggerType;
   location: {
     latitude: number;
     longitude: number;

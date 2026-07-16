@@ -1,7 +1,14 @@
 import { create } from 'zustand';
-import { startGuardianSession, stopGuardianSession, requestGuardianPermissions } from '../services/guardian';
+import {
+  startGuardianSession,
+  stopGuardianSession,
+  requestGuardianPermissions,
+  startAccelerometerMonitoring,
+  stopAccelerometerMonitoring,
+} from '../services/guardian';
 import { triggerSOS as triggerSOSRequest } from '../services/sos';
-import { determineRiskLevel } from '../services/risk-engine';
+import { determineRiskLevel, calculateAccelerometerRisk } from '../services/risk-engine';
+import { SAFETY_CHECKIN } from '@aegis/shared';
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
@@ -25,18 +32,24 @@ interface GuardianState {
   lastRiskSignal: string | null;
   countdownSeconds: number;
   countdownActive: boolean;
-  countdownType: 'manual' | 'risk_engine' | 'keyword' | 'notification_button' | null;
+  countdownType: 'manual' | 'risk_engine' | 'keyword' | 'notification_button' | 'no_response' | null;
   error: string | null;
+  nextCheckInAt: string | null;
+  checkInCountdownActive: boolean;
+  checkInCountdownSeconds: number;
+  isAudioPermissionGranted: boolean;
   startGuardian: () => Promise<void>;
   stopGuardian: () => Promise<void>;
-  beginCountdown: (triggerType: 'manual' | 'risk_engine' | 'keyword' | 'notification_button') => void;
+  beginCountdown: (triggerType: 'manual' | 'risk_engine' | 'keyword' | 'notification_button' | 'no_response') => void;
   cancelCountdown: () => void;
-  triggerSOS: (triggerType: 'manual' | 'risk_engine' | 'keyword' | 'notification_button') => Promise<void>;
+  triggerSOS: (triggerType: 'manual' | 'risk_engine' | 'keyword' | 'notification_button' | 'no_response') => Promise<void>;
   setLocation: (location: LocationData) => void;
   setRiskScore: (score: number, signal?: string) => void;
+  confirmSafety: () => void;
 }
 
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
+let schedulerInterval: ReturnType<typeof setInterval> | null = null;
 
 export const useGuardianStore = create<GuardianState>((set, get) => ({
   active: false,
@@ -50,6 +63,10 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
   countdownActive: false,
   countdownType: null,
   error: null,
+  nextCheckInAt: null,
+  checkInCountdownActive: false,
+  checkInCountdownSeconds: 0,
+  isAudioPermissionGranted: false,
 
   startGuardian: async () => {
     set({ status: 'starting', error: null });
@@ -62,13 +79,74 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
 
     try {
       await startGuardianSession();
+
+      // Subscribe to Accelerometer
+      startAccelerometerMonitoring(({ x, y, z }) => {
+        const signal = calculateAccelerometerRisk(x, y, z);
+        if (signal.score > 0) {
+          get().setRiskScore(get().riskScore + signal.score, signal.label);
+        }
+      });
+
+      const nextTime = new Date(Date.now() + SAFETY_CHECKIN.INTERVAL_MS).toISOString();
+
+      if (schedulerInterval) {
+        clearInterval(schedulerInterval);
+      }
+
+      schedulerInterval = setInterval(() => {
+        const state = get();
+        if (!state.active) return;
+
+        // 1. Natural decay of risk score
+        if (state.riskScore > 0 && state.status === 'active') {
+          const nextScore = Math.max(state.riskScore - 2, 0); // slow decay by 2 per second
+          set({
+            riskScore: nextScore,
+            riskLevel: determineRiskLevel(nextScore),
+            ...(nextScore === 0 ? { lastRiskSignal: null } : {}),
+          });
+        }
+
+        // 2. Check safety check-in countdown
+        if (state.checkInCountdownActive) {
+          const nextSec = state.checkInCountdownSeconds - 1;
+          if (nextSec <= 0) {
+            set({ checkInCountdownSeconds: 0 });
+            if (schedulerInterval) {
+              clearInterval(schedulerInterval);
+              schedulerInterval = null;
+            }
+            get().triggerSOS('no_response');
+          } else {
+            set({ checkInCountdownSeconds: nextSec });
+          }
+        } else if (state.nextCheckInAt && state.status === 'active') {
+          const now = Date.now();
+          const due = new Date(state.nextCheckInAt).getTime();
+          if (now >= due) {
+            set({
+              checkInCountdownActive: true,
+              checkInCountdownSeconds: SAFETY_CHECKIN.GRACE_PERIOD_SECONDS,
+            });
+          }
+        }
+      }, 1000);
+
       set({
         active: true,
         status: 'active',
         startedAt: new Date().toISOString(),
+        nextCheckInAt: nextTime,
+        isAudioPermissionGranted: permissions.audio,
         error: null,
       });
     } catch (error) {
+      stopAccelerometerMonitoring();
+      if (schedulerInterval) {
+        clearInterval(schedulerInterval);
+        schedulerInterval = null;
+      }
       set({
         active: false,
         status: 'idle',
@@ -81,12 +159,17 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
     set({ status: 'stopping', error: null });
     try {
       await stopGuardianSession();
+      stopAccelerometerMonitoring();
       if (countdownTimer) {
         clearInterval(countdownTimer);
         countdownTimer = null;
       }
+      if (schedulerInterval) {
+        clearInterval(schedulerInterval);
+        schedulerInterval = null;
+      }
     } catch {
-      // ignore stop errors, still reset state
+      // ignore
     }
     set({
       active: false,
@@ -94,10 +177,14 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
       startedAt: null,
       riskScore: 0,
       riskLevel: 'low',
+      lastLocation: null,
       lastRiskSignal: null,
       countdownActive: false,
       countdownSeconds: 5,
       countdownType: null,
+      nextCheckInAt: null,
+      checkInCountdownActive: false,
+      checkInCountdownSeconds: 0,
     });
   },
 
@@ -169,6 +256,18 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
     }
   },
 
+  confirmSafety: () => {
+    const nextTime = new Date(Date.now() + SAFETY_CHECKIN.INTERVAL_MS).toISOString();
+    set({
+      checkInCountdownActive: false,
+      checkInCountdownSeconds: 0,
+      nextCheckInAt: nextTime,
+      riskScore: 0,
+      riskLevel: 'low',
+      lastRiskSignal: null,
+    });
+  },
+
   triggerSOS: async (triggerType) => {
     const state = get();
     if (state.status === 'sos_triggered') {
@@ -182,7 +281,7 @@ export const useGuardianStore = create<GuardianState>((set, get) => ({
         location: {
           latitude: state.lastLocation?.latitude ?? 0,
           longitude: state.lastLocation?.longitude ?? 0,
-          accuracy: state.lastLocation?.accuracy ?? null,
+          accuracy: state.lastLocation?.accuracy ?? undefined,
           speed: state.lastLocation?.speed,
           heading: null,
         },
