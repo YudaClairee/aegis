@@ -1,6 +1,14 @@
 export type IncidentStatus = 'triggered' | 'active' | 'resolved' | 'false_alarm'
 export type IncidentClassification = 'harassment' | 'robbery' | 'assault' | 'stalking' | 'unknown'
-export type TriggerType = 'manual' | 'keyword' | 'risk_engine' | 'notification_button'
+export type TriggerType = 'manual' | 'keyword' | 'risk_engine' | 'notification_button' | 'no_response'
+
+export interface SOSTriggerContext {
+  guardianStartedAt?: string
+  lastCheckInAt?: string
+  missedCheckInAt?: string
+  escalationReason?: string
+  [key: string]: any
+}
 
 export interface IncidentLocation {
   latitude: number
@@ -31,6 +39,7 @@ export interface Incident {
   aiSummary: AISummary | null
   riskScore: number | null
   classification: IncidentClassification | null
+  triggerContext?: SOSTriggerContext | null
   resolvedAt: string | null
   createdAt: string
 }

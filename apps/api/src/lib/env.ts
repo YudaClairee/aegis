@@ -38,7 +38,7 @@ const envSchema = z.object({
   OPENROUTER_SITE_URL: z.preprocess((val) => stripQuotes(val) ?? 'https://safeher.biz.id', z.string().url()).default('https://safeher.biz.id'),
   OPENROUTER_APP_NAME: z.preprocess((val) => stripQuotes(val) ?? 'SafeHer', z.string()).default('SafeHer'),
   FIREBASE_PROJECT_ID: cleanString.pipe(z.string().min(1)),
-  FIREBASE_CLIENT_EMAIL: cleanString.pipe(z.string().email()),
+  FIREBASE_CLIENT_EMAIL: cleanString.pipe(z.string().min(1)),
   FIREBASE_PRIVATE_KEY: cleanString
     .transform((val) => val.replace(/\\n/g, '\n'))
     .pipe(z.string().min(1)),
