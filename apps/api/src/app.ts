@@ -58,9 +58,28 @@ app.onError((err, c) => {
   console.error('🔥 Server Error:', err);
 
   if (err instanceof HTTPException) {
+    let message = err.message;
+    let code: string | undefined = undefined;
+
+    // Check if the message is a stringified JSON array of Zod validation issues
+    try {
+      const parsed = JSON.parse(err.message);
+      if (Array.isArray(parsed)) {
+        // Format Zod issues nicely
+        message = 'Validation failed: ' + parsed.map((issue: any) => {
+          const field = issue.path.join('.');
+          return `${field ? `'${field}': ` : ''}${issue.message}`;
+        }).join(', ');
+        code = 'VALIDATION_ERROR';
+      }
+    } catch {
+      // Message is not a JSON string, keep as-is
+    }
+
     return c.json({
       error: {
-        message: err.message,
+        message,
+        ...(code ? { code } : {}),
       },
     }, err.status);
   }
